@@ -1,0 +1,177 @@
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumenify - Create Account</title>
+    <script src="../../js/Vue.js"></script>
+    <script src="../../js/tailwindcss.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style>
+        @keyframes float {
+            0% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+            50% { transform: translateY(-20px) rotate(10deg); opacity: 0.5; }
+            100% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+        }
+        .animate-quiz-bg { animation: float 6s ease-in-out infinite; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 flex items-center justify-center min-h-screen font-sans overflow-hidden relative">
+    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+        <div class="animate-quiz-bg absolute top-10 left-10 text-indigo-200 text-6xl font-bold">?</div>
+        <div class="animate-quiz-bg absolute bottom-20 left-20 text-teal-200 text-4xl font-bold" style="animation-delay: 1s;">+</div>
+        <div class="animate-quiz-bg absolute top-1/4 right-20 text-amber-200 text-5xl font-bold" style="animation-delay: 2s;">!</div>
+        <div class="animate-quiz-bg absolute bottom-1/4 right-10 text-indigo-200 text-6xl font-bold" style="animation-delay: 3s;">?</div>
+        <div class="animate-quiz-bg absolute top-3/4 left-1/3 w-12 h-12 border-4 border-indigo-100 rounded-full" style="animation-delay: 4s;"></div>
+        <div class="animate-quiz-bg absolute top-1/2 right-1/4 w-8 h-8 border-4 border-teal-100 rotate-45" style="animation-delay: 1.5s;"></div>
+    </div>
+    <div id="app" class="relative z-10 w-full max-w-md">
+        <div class="bg-white/90 backdrop-blur-sm p-8 rounded-2xl shadow-2xl w-full border border-white">
+            <div class="text-center mb-6">
+                <div class="inline-block bg-indigo-600 text-white p-3 rounded-xl mb-4 shadow-lg shadow-indigo-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Lumenify</h1>
+                <p class="text-slate-500 mt-1">Create your account to get started.</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" v-model="username" placeholder="Choose a username" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input type="email" v-model="email" placeholder="name@example.com" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" v-model="password" placeholder="Min. 6 characters" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                </div>
+                <div class="flex items-start mt-2">
+                    <div class="flex items-center h-5">
+                        <input id="terms" type="checkbox" v-model="agreedToTerms" class="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                    </div>
+                    <div class="ml-3 text-sm">
+                        <label for="terms" class="font-medium text-slate-600 select-none">
+                            I agree to the 
+                            <span @click.prevent="showTerms = true" class="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer font-bold">Terms and Conditions</span>
+                        </label>
+                    </div>
+                </div>
+                <button @click="handleRegister" 
+                        :class="agreedToTerms ? 'bg-indigo-600 hover:bg-indigo-700 active:scale-95 shadow-md' : 'bg-slate-300 cursor-not-allowed'"
+                        class="w-full text-white font-semibold py-3 rounded-lg transition-all mt-4">
+                    Register
+                </button>
+                <div class="h-6 text-center">
+                    <p v-if="message" class="text-sm text-red-500 font-medium animate-pulse">{{message}}</p>
+                </div>
+            </div>
+            <hr class="my-6 border-slate-100">
+            <div class="text-center text-sm text-slate-600">
+                Already have an account? 
+                <a href="./login.html" class="text-indigo-600 font-semibold hover:underline">Login here</a>
+            </div>
+        </div>
+        <transition name="fade">
+            <div v-if="showTerms" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden border border-slate-100">
+                    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                        <h3 class="text-xl font-bold text-slate-800">Terms & Conditions</h3>
+                        <button @click="showTerms = false" class="text-slate-400 hover:text-slate-600 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="p-6 overflow-y-auto text-slate-600 text-sm space-y-4 leading-relaxed">
+                        <p class="font-bold text-slate-800">1. Acceptance of Terms</p>
+                        <p>By creating an account on Lumenify, you agree to comply with and be bound by these terms.</p>
+                        <p class="font-bold text-slate-800">2. User Account</p>
+                        <p>You are responsible for maintaining the confidentiality of your account credentials.</p>
+                        <p class="font-bold text-slate-800">3. Quiz Integrity</p>
+                        <p>Users agree not to cheat, manipulate scores, or attempt to hack the quiz system.</p>
+                        <p class="font-bold text-slate-800">4. Privacy Policy</p>
+                        <p>We respect your privacy. Your personal data is used solely for functionality.</p>
+                    </div>
+                    <div class="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                        <button @click="showTerms = false" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors font-medium">Close</button>
+                        <button @click="acceptTerms" class="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition-colors font-semibold shadow-md">I Agree</button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </div>
+    <script>
+        Vue.createApp({
+            data() {
+                return {
+                    username: '',
+                    email: '',
+                    password: '',
+                    message: '',
+                    agreedToTerms: false,
+                    showTerms: false
+                }
+            },
+            methods: {
+                acceptTerms() {
+                    this.agreedToTerms = true;
+                    this.showTerms = false;
+                },
+                async handleRegister() {
+                    this.message = '';
+                    if (!this.username || !this.password || !this.email) {
+                        this.message = "All fields are required.";
+                        return;
+                    }
+                    if (this.password.length < 6) {
+                        this.message = "Password must be at least 6 characters.";
+                        return;
+                    }
+                    if (!this.agreedToTerms) {
+                        this.message = "You must agree to the Terms & Conditions.";
+                        return;
+                    }
+                    try {
+                        const response = await fetch('../../api/user/register.php', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                username: this.username,
+                                email: this.email,
+                                password: this.password
+                            })
+                        });
+                        const result = await response.json();
+                        if (response.ok) {
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Account Created!',
+                                text: 'Redirecting to login...',
+                                timer: 1500,
+                                showConfirmButton: false,
+                                background: '#ffffff',
+                                color: '#1e293b',
+                                iconColor: '#4f46e5',
+                                customClass: {
+                                    popup: 'rounded-2xl font-sans border border-slate-100 shadow-xl'
+                                }
+                            }).then(() => {
+                                window.location.href = './login.html';
+                            });
+                        } else {
+                            this.message = result.message;
+                        }
+                    } catch (error) {
+                        this.message = "Could not connect to the server.";
+                    }
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

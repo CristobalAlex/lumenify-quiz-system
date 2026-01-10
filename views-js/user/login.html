@@ -1,0 +1,129 @@
+<html>
+    <head>
+        <title>Lumenify Quiz System Login</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="../../js/Vue.js"></script>
+        <script src="../../js/tailwindcss.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+        <style>
+            @keyframes float {
+                0% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+                50% { transform: translateY(-20px) rotate(10deg); opacity: 0.5; }
+                100% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+            }
+            .animate-quiz-bg {
+                animation: float 6s ease-in-out infinite;
+            }
+        </style>
+    </head>
+    <body class="bg-slate-50 flex items-center justify-center min-h-screen font-sans overflow-hidden relative">
+        <div class="absolute inset-0 overflow-hidden pointer-events-none">
+            <div class="animate-quiz-bg absolute top-10 left-10 text-indigo-200 text-6xl font-bold">?</div>
+            <div class="animate-quiz-bg absolute bottom-20 left-20 text-teal-200 text-4xl font-bold" style="animation-delay: 1s;">+</div>
+            <div class="animate-quiz-bg absolute top-1/4 right-20 text-amber-200 text-5xl font-bold" style="animation-delay: 2s;">!</div>
+            <div class="animate-quiz-bg absolute bottom-1/4 right-10 text-indigo-200 text-6xl font-bold" style="animation-delay: 3s;">?</div>
+            <div class="animate-quiz-bg absolute top-3/4 left-1/3 w-12 h-12 border-4 border-indigo-100 rounded-full" style="animation-delay: 4s;"></div>
+            <div class="animate-quiz-bg absolute top-1/2 right-1/4 w-8 h-8 border-4 border-teal-100 rotate-45" style="animation-delay: 1.5s;"></div>
+        </div>
+        <div id="app" class="relative z-10 bg-white/90 backdrop-blur-sm p-8 rounded-2xl shadow-2xl w-full max-w-md border border-white">
+            <div class="text-center mb-8">
+                <div class="inline-block bg-indigo-600 text-white p-3 rounded-xl mb-4 shadow-lg shadow-indigo-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                </div>
+                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Lumenify</h1>
+                <p class="text-slate-500 mt-2">Sign in to start your journey to learn.</p>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1" for="username">Username</label>
+                    <input type="text" v-model="username" placeholder="Enter your username"
+                        class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                </div>
+                <div>
+                    <div class="flex justify-between">
+                        <label class="block text-sm font-medium text-slate-700 mb-1" for="password">Password</label>
+                        <a href="./forgotpassword.html" class="text-xs text-indigo-600 hover:underline">Forgot?</a>
+                    </div>
+                    <input type="password" v-model="password" placeholder="••••••••"
+                        class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                </div>
+                <button @click="handleLogin" 
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-lg shadow-md transition-all active:transform active:scale-95 mt-2">
+                    Login
+                </button>
+                <div class="h-6">
+                    <p v-if="message" class="text-sm text-center text-red-500 font-medium animate-pulse">
+                        {{message}}
+                    </p>
+                </div>
+            </div>
+            <hr class="my-6 border-slate-100">
+            <div class="text-center">
+                <h3 class="text-slate-500 text-xs uppercase tracking-widest font-bold mb-4">New here?</h3>
+                <button @click="register" 
+                    class="w-full border-2 border-indigo-50 border-dashed hover:border-indigo-200 hover:bg-indigo-50 text-indigo-600 font-medium py-2 rounded-lg transition-all">
+                    Register Account
+                </button>
+            </div>
+        </div>
+    </body>
+    <script>
+        const app = Vue.createApp({
+            data() {
+                return {
+                    username:'',
+                    password:'',
+                    message:'',
+                    registerUrl:'../user/register.html'
+                }
+            },
+            methods:{
+                async handleLogin(){
+                    this.message = '';
+                    if (!this.username || !this.password){
+                        this.message="Please enter both fields!";
+                        return;
+                    }
+                    try {
+                        const response = await fetch('../../api/user/login.php',{
+                            method: 'POST',
+                            headers:{ 'Content-Type':'application/json' },
+                            body: JSON.stringify({
+                                username: this.username,
+                                password: this.password
+                            })
+                        });
+                        const result = await response.json();
+                        
+                        if(response.ok){
+                            Swal.fire({
+                                icon: 'success',
+                                title: 'Welcome Back!',
+                                text: 'Logging you in...',
+                                timer: 1500,
+                                showConfirmButton: false,
+                                background: '#ffffff',
+                                color: '#1e293b',
+                                iconColor: '#4f46e5',
+                                customClass: {
+                                    popup: 'rounded-2xl font-sans border border-slate-100 shadow-xl'
+                                }
+                            }).then(() => {
+                                window.location.href = result.redirect;
+                            });
+                        } else {
+                            this.message = result.message;
+                        }
+                    } catch (error){
+                        this.message = "Could not connect to the server.";
+                    }
+                },
+                register(){ window.location.href=this.registerUrl; }
+            }
+        });
+        app.mount('#app');
+    </script>
+</html>
