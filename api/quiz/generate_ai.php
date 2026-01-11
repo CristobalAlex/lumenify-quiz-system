@@ -1,32 +1,24 @@
 <?php
-session_start();
-require_once __DIR__ . '/../utils/extractor.php'; 
-header('Content-Type: application/json');
-if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !isset($_FILES['quizFile'])) {
-    echo json_encode(['status' => 'error', 'message' => 'Invalid request']);
-    exit;
-}
-$fileTmpPath = $_FILES['quizFile']['tmp_name'];
-$fileName = $_FILES['quizFile']['name'];
-$ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+include '../../config/api.php';
+header("Access-Control-Allow-Origin: *");
+header("Content-Type: application/json");
+header("Access-Control-Allow-Methods: POST");
 
-$text = TextExtractor::extract($fileTmpPath, $ext);
-$text = substr($text, 0, 30000); 
-
-if (strlen($text) < 50) {
-    echo json_encode(['status' => 'error', 'message' => 'Could not extract enough text from file.']);
-    exit;
-}
-
+$text = $_POST['extractedText'] ?? '';
 $qCount = isset($_POST['questionCount']) ? intval($_POST['questionCount']) : 5;
-$quizType = isset($_POST['quizType']) ? $_POST['quizType'] : 'multiple_choice';
+$quizType = $_POST['quizType'] ?? 'multiple_choice';
+
+if (empty($text) || strlen($text) < 50) {
+    echo json_encode(['status' => 'error', 'message' => 'No text content received or text is too short.']);
+    exit;
+}
 
 if ($qCount < 1) $qCount = 1;
 if ($qCount > 20) $qCount = 20;
+$text = substr($text, 0, 30000);
 
-$apiKey = "AIzaSyCr8C68-JPkqQzlz6aVvygAgWv-mGqPneA";
+$apiKey = GEMINI_API_KEY;
 $apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey";
-
 
 $typeInstruction = "";
 if ($quizType === 'identification') {
@@ -40,7 +32,7 @@ if ($quizType === 'identification') {
 $prompt = "
 You are a professional quiz generator. 
 1. **Analyze the text provided below.**
-2. **Detect the language** of the text (e.g., Tagalog, English, Cebuano, etc.). **YOU MUST GENERATE THE QUESTIONS AND ANSWERS IN THE SAME LANGUAGE AS THE TEXT.** If the text is Tagalog, the questions must be Tagalog.
+2. **Detect the language** of the text (e.g., Tagalog, English, Cebuano, etc.). **YOU MUST GENERATE THE QUESTIONS AND ANSWERS IN THE SAME LANGUAGE AS THE TEXT.**
 3. **Generate $qCount questions** based on the content.
 4. $typeInstruction
 
@@ -95,10 +87,12 @@ if (curl_errno($ch)) {
 curl_close($ch);
 
 $result = json_decode($response, true);
+
 if (isset($result['error'])) {
     echo json_encode(['status' => 'error', 'message' => 'Gemini API Error: ' . $result['error']['message']]);
     exit;
 }
+
 if (isset($result['candidates'][0]['content']['parts'][0]['text'])) {
     $rawAiText = $result['candidates'][0]['content']['parts'][0]['text'];
     $rawAiText = str_replace(['```json', '```'], '', $rawAiText);

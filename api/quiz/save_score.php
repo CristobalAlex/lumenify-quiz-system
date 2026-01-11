@@ -1,15 +1,21 @@
 <?php
 session_start();
 include '../../config/dbconfig.php';
+
+date_default_timezone_set('Asia/Manila');
+
 header('Content-Type: application/json');
 if (!isset($_SESSION['user_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['status' => 'error', 'message' => 'Unauthorized']);
     exit;
 }
+
 $data = json_decode(file_get_contents("php://input"), true);
 $userId = $_SESSION['user_id'];
 $quizId = $data['quiz_id'];
 $userAnswers = $data['details']; 
+
+$currentDate = date('Y-m-d H:i:s');
 
 try {
     $pdo->beginTransaction();
@@ -37,8 +43,9 @@ try {
         }
     }
 
-    $stmt = $pdo->prepare("INSERT INTO quiz_attempts (user_id, quiz_id, score, total_questions) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$userId, $quizId, $score, $total]);
+    $stmt = $pdo->prepare("INSERT INTO quiz_attempts (user_id, quiz_id, score, total_questions, attempted_at) VALUES (?, ?, ?, ?, ?)");
+    $stmt->execute([$userId, $quizId, $score, $total, $currentDate]);
+    
     $attemptId = $pdo->lastInsertId();
 
     $detailStmt = $pdo->prepare("INSERT INTO quiz_attempt_answers (attempt_id, question_id, user_answer) VALUES (?, ?, ?)");

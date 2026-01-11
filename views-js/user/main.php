@@ -13,6 +13,9 @@ if (!isset($_SESSION['username'])) {
     <script src="../../js/Vue.js"></script>
     <script src="../../js/VueRouter.js"></script>
     <script src="../../js/tailwindcss.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -306,7 +309,10 @@ if (!isset($_SESSION['username'])) {
                 title: '',
                 description: '',
                 file: null,
+                fileName: '',
+                extractedText: '',
                 loading: false,
+                loadingText: 'Loading...',
                 questionCount: 5,
                 quizType: 'multiple_choice', 
                 manualQuestions: [{ 
@@ -319,9 +325,115 @@ if (!isset($_SESSION['username'])) {
             }
         },
         methods: {
-            handleFileUpload(event) {
+            async handleFileUpload(event) {
                 this.file = event.target.files[0];
-                this.isAiGenerated = false; 
+                if (!this.file) return;
+                this.fileName = this.file.name;
+                this.isAiGenerated = false;
+                this.extractedText = '';
+                const originalText = this.loadingText;
+                this.loading = true;
+                this.loadingText = "Reading file...";
+                try {
+                    if (this.file.type === 'application/pdf') {
+                        this.extractedText = await this.extractPdfText(this.file);
+                    } 
+                    else if (this.file.type === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+                        this.extractedText = await this.extractPptxText(this.file);
+                    } else {
+                        SwalTheme.fire({ icon: 'error', title: 'Invalid File', text: 'Please upload a PDF or PPTX file.' });
+                        this.file = null;
+                        this.fileName = '';
+                    }
+                    if(this.extractedText.length < 50) {
+                        SwalTheme.fire({ icon: 'warning', title: 'Low Content', text: 'We could not extract enough text from this file. It might be an image-only PDF.' });
+                    }
+                } catch (error) {
+                    console.error(error);
+                    SwalTheme.fire({ icon: 'error', title: 'Read Error', text: 'Could not parse this file.' });
+                } finally {
+                    this.loading = false;
+                    this.loadingText = originalText;
+                }
+            },
+            async extractPdfText(file) {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                let fullText = "";
+
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map(item => item.str).join(" ");
+                    fullText += pageText + "\n";
+                }
+                return fullText;
+            },
+            async extractPptxText(file) {
+                const zip = await JSZip.loadAsync(file);
+                let fullText = "";
+                const slideFiles = Object.keys(zip.files).filter(name => name.startsWith("ppt/slides/slide"));
+                slideFiles.sort((a, b) => {
+                    const numA = parseInt(a.match(/slide(\d+)\.xml/)[1]);
+                    const numB = parseInt(b.match(/slide(\d+)\.xml/)[1]);
+                    return numA - numB;
+                });
+                const parser = new DOMParser();
+                for (const filename of slideFiles) {
+                    const content = await zip.file(filename).async("string");
+                    const xmlDoc = parser.parseFromString(content, "text/xml");
+                    const textNodes = xmlDoc.getElementsByTagName("a:t");
+                    for (let i = 0; i < textNodes.length; i++) {
+                        fullText += textNodes[i].textContent + " ";
+                    }
+                    fullText += "\n";
+                }
+                return fullText;
+            },
+            async generateFromAI() {
+                if (!this.extractedText) {
+                    SwalTheme.fire({ icon: 'warning', title: 'No Content', text: 'Please upload a valid file first.' });
+                    return;
+                }
+
+                this.loading = true;
+                this.loadingText = 'AI is generating your quiz...';
+                
+                let formData = new FormData();
+                formData.append('extractedText', this.extractedText); 
+                formData.append('questionCount', this.questionCount); 
+                formData.append('quizType', this.quizType);
+
+                try {
+                    const response = await fetch('../../api/quiz/generate_ai.php', { method: 'POST', body: formData });
+                    const result = await response.json();
+
+                    if (result.status === 'success') {
+                        this.manualQuestions = result.data.map(q => ({
+                            type: q.type || (q.options && q.options.A ? 'MCQ' : 'IDENT'),
+                            text: q.text, 
+                            options: q.options || { A:'', B:'', C:'', D:'' }, 
+                            correct: q.correct
+                        }));
+                        this.activeTab = 'manual';
+                        this.isAiGenerated = true; 
+                        
+                        SwalTheme.fire({ 
+                            icon: 'success', 
+                            title: 'Generation Complete!', 
+                            text: 'Review your questions below.',
+                            timer: 2000, 
+                            showConfirmButton: false 
+                        });
+                    } else {
+                        SwalTheme.fire({ icon: 'error', title: 'AI Error', text: result.message });
+                    }
+                } catch (error) {
+                    SwalTheme.fire({ icon: 'error', title: 'Connection Error', text: 'Failed to connect to AI service.' });
+                } finally {
+                    this.loading = false;
+                    this.loadingText = 'Loading...';
+                }
             },
             addQuestion() {
                 this.manualQuestions.push({
@@ -346,108 +458,42 @@ if (!isset($_SESSION['username'])) {
                     q.correct = 'A';
                 }
             },
-            async generateFromAI() {
-                if (!this.file) {
-                    SwalTheme.fire({ icon: 'warning', title: 'Oops...', text: 'Please select a file first.' });
-                    return;
-                }
-                this.loading = true;
-                
-                let formData = new FormData();
-                formData.append('quizFile', this.file);
-                formData.append('questionCount', this.questionCount); 
-                formData.append('quizType', this.quizType);
-
-                try {
-                    const response = await fetch('../../api/quiz/generate_ai.php', { method: 'POST', body: formData });
-                    const result = await response.json();
-
-                    if (result.status === 'success') {
-                        this.manualQuestions = result.data.map(q => ({
-                            type: q.type || (q.options.A ? 'MCQ' : 'IDENT'),
-                            text: q.text, 
-                            options: q.options, 
-                            correct: q.correct
-                        }));
-                        this.activeTab = 'manual';
-                        this.isAiGenerated = true; 
-                        SwalTheme.fire({ 
-                            html: `
-                                <div class="flex justify-center mb-4">
-                                    <div class="w-20 h-20 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center animate-bounce-short">
-                                        <svg class="w-10 h-10 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
-                                        </svg>
-                                    </div>
-                                </div>
-                                <h2 class="text-2xl font-bold text-slate-800 dark:text-white mb-2">Generation Complete!</h2>
-                                <p class="text-slate-500 dark:text-slate-400">Questions are ready for review.</p>
-                            `,
-                            timer: 2000, 
-                            showConfirmButton: false,
-                            customClass: {
-                                popup: 'rounded-3xl p-8 font-sans bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700'
-                            }
-                        });
-                    } else {
-                        SwalTheme.fire({ icon: 'error', title: 'AI Error', text: result.message });
-                    }
-                }catch (error) {
-                    SwalTheme.fire({ icon: 'error', title: 'Connection Error', text: 'Failed to connect to AI service.' });
-                }finally {
-                    this.loading = false;
-                }
-            },
             async submitQuiz() {
-                if (!this.title) { SwalTheme.fire({ icon: 'warning', title: 'Missing Title', text: 'Please enter a quiz title.' }); return; }
-                
+                if (!this.title) { 
+                    SwalTheme.fire({ icon: 'warning', title: 'Missing Title', text: 'Please enter a quiz title.' }); 
+                    return; 
+                }
                 if (this.activeTab === 'upload' && !this.isAiGenerated) {
                     SwalTheme.fire({ icon: 'warning', title: 'Generate First', text: 'Please generate questions with AI before saving.' });
                     return;
                 }
                 this.loading = true;
+                this.loadingText = 'Saving Quiz...';
                 let formData = new FormData();
                 formData.append('title', this.title);
                 formData.append('description', this.description);
                 formData.append('mode', this.activeTab);
                 formData.append('questions', JSON.stringify(this.manualQuestions));
-
-                if (this.activeTab === 'upload') {
-                    if (!this.file) { SwalTheme.fire({ icon: 'warning', title: 'Missing File', text: 'Please select a file.' }); this.loading = false; return; }
-                    formData.append('quizFile', this.file);
-                } 
-
                 try {
                     const response = await fetch('../../api/quiz/create.php', { method: 'POST', body: formData });
                     const result = await response.json();
-                    this.loading = false; 
                     
                     if (result.status === 'success') {
                         await SwalTheme.fire({
-                            html: `
-                                <div class="flex justify-center mb-4">
-                                    <div class="w-20 h-20 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
-                                        <svg class="w-10 h-10 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                        </svg>
-                                    </div>
-                                </div>
-                                <h2 class="text-2xl font-bold text-slate-800 dark:text-white mb-2">Quiz Saved! 🎉</h2>
-                                <p class="text-slate-500 dark:text-slate-400">Ready to play.</p>
-                            `,
-                            confirmButtonText: 'Go to Dashboard',
-                            customClass: {
-                                popup: 'rounded-3xl p-8 font-sans bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700',
-                                confirmButton: 'bg-indigo-600 text-white font-bold py-3 px-8 rounded-xl hover:bg-indigo-700 transition-all w-full mt-4 shadow-lg shadow-indigo-200 dark:shadow-none'
-                            }
+                            icon: 'success',
+                            title: 'Quiz Saved!',
+                            text: 'Redirecting to dashboard...',
+                            timer: 1500,
+                            showConfirmButton: false
                         });
                         this.$router.push('/');
                     } else {
                         SwalTheme.fire({ icon: 'error', title: 'Error', text: result.message });
                     }
                 } catch (error) {
+                    SwalTheme.fire({ icon: 'error', title: 'System Error', text: 'An error occurred while saving.' });
+                } finally {
                     this.loading = false;
-                    SwalTheme.fire({ icon: 'error', title: 'System Error', text: 'An error occurred while creating the quiz.' });
                 }
             }
         },
@@ -467,7 +513,7 @@ if (!isset($_SESSION['username'])) {
                 <div class="flex flex-col md:flex-row gap-2 md:gap-4 mb-6">
                     <button @click="activeTab = 'upload'" :class="activeTab === 'upload' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'" class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border border-transparent flex justify-center items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                        AI Generator (Upload)
+                        AI Generator (Fast)
                     </button>
                     <button @click="activeTab = 'manual'" :class="activeTab === 'manual' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'" class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border border-transparent flex justify-center items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
@@ -476,16 +522,21 @@ if (!isset($_SESSION['username'])) {
                 </div>
                 <div v-if="activeTab === 'upload'" class="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
                     <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-4">Upload PDF or PPTX</label>
-                    <label class="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-300 dark:border-slate-600 border-dashed rounded-2xl cursor-pointer bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-center p-4">
-                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                            <svg class="w-10 h-10 mb-3 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                            <p v-if="!file" class="mb-2 text-sm text-slate-500 dark:text-slate-400"><span class="font-semibold">Click to upload</span></p>
-                            <p v-if="!file" class="text-xs text-slate-500 dark:text-slate-400">PDF/PPTX (MAX. 10MB)</p>
-                            <p v-if="file" class="mt-2 text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 text-xs break-all">{{ file.name }}</p>
+                    <label class="flex flex-col items-center justify-center w-full h-48 border-2 border-slate-300 dark:border-slate-600 border-dashed rounded-2xl cursor-pointer bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all text-center p-4 group relative overflow-hidden">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6 z-10">
+                            <svg class="w-10 h-10 mb-3 text-slate-400 group-hover:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                            <p v-if="!fileName" class="mb-2 text-sm text-slate-500 dark:text-slate-400"><span class="font-semibold">Click to upload</span></p>
+                            <p v-if="!fileName" class="text-xs text-slate-500 dark:text-slate-400">PDF/PPTX (Processed Locally)</p>
+                            <p v-if="fileName" class="mt-2 text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 text-sm flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                {{ fileName }}
+                            </p>
+                            <p v-if="fileName && extractedText" class="text-xs text-emerald-500 mt-1 font-semibold">Extracted Successfully!</p>
                         </div>
                         <input type="file" class="hidden" accept=".pdf,.pptx" @change="handleFileUpload" />
                     </label>
-                    <div v-if="file" class="mt-6 border-t border-slate-100 dark:border-slate-700 pt-6">
+
+                    <div v-if="fileName" class="mt-6 border-t border-slate-100 dark:border-slate-700 pt-6 animate-fade-in-up">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Number of Questions</label>
@@ -500,12 +551,12 @@ if (!isset($_SESSION['username'])) {
                                 </select>
                             </div>
                         </div>
-                        <button @click="generateFromAI" :disabled="loading" class="w-full relative py-3 px-6 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-lg shadow-purple-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-50 animate-ring h-[50px]">
+                        <button @click="generateFromAI" :disabled="loading" class="w-full relative py-3 px-6 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-lg shadow-purple-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-[50px]">
                             <svg v-if="!loading" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                             <svg v-else class="animate-spin w-5 h-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                            <span>{{ loading ? 'Analyzing & Generating...' : 'Generate Quiz with AI' }}</span>
+                            <span>{{ loading ? loadingText : 'Generate Quiz with AI' }}</span>
                         </button>
-                        <p class="text-xs text-slate-400 mt-3 text-center">AI will automatically detect the language of your file.</p>
+                        <p class="text-xs text-slate-400 mt-3 text-center">Fast Generation via Client-Side Extraction</p>
                     </div>
                 </div>
                 <div v-if="activeTab === 'manual'" class="space-y-6">
@@ -514,12 +565,13 @@ if (!isset($_SESSION['username'])) {
                             <div class="flex items-center gap-2">
                                 <h3 class="font-bold text-slate-800 dark:text-white">Question {{ index + 1 }}</h3>
                                 <span class="text-xs font-bold px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors" @click="toggleQuestionType(index)">
-                                    {{ question.type === 'MCQ' ? 'Multiple Choice' : 'Identification' }} (Click to Swap)
+                                    {{ question.type === 'MCQ' ? 'Multiple Choice' : 'Identification' }} (Swap)
                                 </span>
                             </div>
                             <button v-if="manualQuestions.length > 1" @click="removeQuestion(index)" class="text-slate-400 hover:text-red-500 text-sm font-medium transition-colors">Remove</button>
                         </div>
                         <input v-model="question.text" type="text" class="w-full mb-4 px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none font-medium" placeholder="Enter your question here...">
+                        
                         <div v-if="question.type === 'MCQ'" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div v-for="opt in ['A', 'B', 'C', 'D']" :key="opt" class="flex items-center gap-2">
                                 <span class="font-bold text-slate-400 w-6 flex-shrink-0">{{ opt }}.</span>
@@ -530,6 +582,7 @@ if (!isset($_SESSION['username'])) {
                             <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Correct Answer</label>
                             <input v-model="question.correct" type="text" class="w-full px-4 py-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-400 font-bold outline-none" placeholder="Type the exact answer here...">
                         </div>
+
                         <div v-if="question.type === 'MCQ'" class="flex flex-wrap items-center gap-2 md:gap-4 text-sm bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
                             <span class="font-semibold text-slate-700 dark:text-slate-300 w-full md:w-auto">Correct Answer:</span>
                             <div class="flex gap-4">
@@ -540,18 +593,19 @@ if (!isset($_SESSION['username'])) {
                             </div>
                         </div>
                     </div>
+                    
                     <button @click="addQuestion" type="button" class="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-indigo-300 hover:text-indigo-500 transition-all flex justify-center items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
                         Add Another Question
                     </button>
                 </div>
+
                 <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
                     <button @click="submitQuiz" 
                         :disabled="loading || (activeTab === 'upload' && !isAiGenerated)" 
                         :class="loading || (activeTab === 'upload' && !isAiGenerated) ? 'opacity-70 cursor-not-allowed' : 'hover:bg-indigo-700 transform active:scale-[0.99]'"
                         class="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex justify-center items-center gap-2">
-                        
-                        <span>{{ activeTab === 'upload' ? 'Save Quiz' : 'Save Quiz' }}</span>
+                        <span>{{ loading ? loadingText : 'Save Quiz' }}</span>
                     </button>
                 </div>
             </div>`
@@ -734,7 +788,7 @@ if (!isset($_SESSION['username'])) {
                         </thead>
                         <tbody class="divide-y divide-slate-100 dark:divide-slate-700 text-slate-700 dark:text-slate-300">
                             <tr v-for="attempt in attemptHistory" :key="attempt.id" class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                               87q <td class="p-4 text-slate-5w800">{{ formatDate(attempt.attempted_at) }}</td>
+                                <td class="p-4 text-slate-600 dark:text-slate-300">{{ formatDate(attempt.attempted_at) }}</td>
                                 <td class="p-4 font-bold">{{ attempt.score }} / {{ attempt.total_questions }}</td>
                                 <td class="p-4 text-right">
                                     <button @click="openReview(attempt)" class="text-indigo-600 dark:text-indigo-400 font-bold text-sm hover:underline">Review →</button>
@@ -752,12 +806,10 @@ if (!isset($_SESSION['username'])) {
                 </div>
                 <div class="space-y-6">
                     <div v-for="(q, index) in questions" :key="q.id" class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
-                        
                         <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-4">
                             <span class="text-slate-400 dark:text-slate-500 mr-2">{{ index + 1 }}.</span>
                             {{ q.question_text }}
                         </h3>
-
                         <div v-if="q.option_a" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <label v-for="opt in ['A','B','C','D']" :key="opt" 
                                 class="flex items-center gap-3 p-4 rounded-xl border cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700" 
@@ -767,14 +819,12 @@ if (!isset($_SESSION['username'])) {
                                 <span class="text-slate-700 dark:text-slate-300">{{ q['option_'+opt.toLowerCase()] }}</span>
                             </label>
                         </div>
-
                         <div v-else>
                             <label class="block text-sm font-bold text-slate-500 dark:text-slate-400 mb-2 uppercase tracking-wide">Your Answer:</label>
                             <input type="text" v-model="userAnswers[q.id]" 
                                 class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:bg-white dark:focus:bg-slate-800 text-slate-800 dark:text-white outline-none transition-all"
                                 placeholder="Type your answer here...">
                         </div>
-
                     </div>
                 </div>
                 <div class="mt-8 flex justify-end">
@@ -834,7 +884,6 @@ if (!isset($_SESSION['username'])) {
             </div>
         </div>`
     };
-
     const QuizList = {
         data() {
             return {

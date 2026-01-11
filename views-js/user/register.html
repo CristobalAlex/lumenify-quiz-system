@@ -15,163 +15,205 @@
         .animate-quiz-bg { animation: float 6s ease-in-out infinite; }
         .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
         .fade-enter-from, .fade-leave-to { opacity: 0; }
+        .slide-up-enter-active, .slide-up-leave-active { transition: all 0.3s ease-out; }
+        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(10px); opacity: 0; }
     </style>
 </head>
-<body class="bg-slate-50 flex items-center justify-center min-h-screen font-sans overflow-hidden relative">
-    <div class="absolute inset-0 overflow-hidden pointer-events-none">
+<body class="bg-slate-50 flex items-center justify-center min-h-screen font-sans overflow-y-auto py-10 relative">
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
         <div class="animate-quiz-bg absolute top-10 left-10 text-indigo-200 text-6xl font-bold">?</div>
         <div class="animate-quiz-bg absolute bottom-20 left-20 text-teal-200 text-4xl font-bold" style="animation-delay: 1s;">+</div>
         <div class="animate-quiz-bg absolute top-1/4 right-20 text-amber-200 text-5xl font-bold" style="animation-delay: 2s;">!</div>
         <div class="animate-quiz-bg absolute bottom-1/4 right-10 text-indigo-200 text-6xl font-bold" style="animation-delay: 3s;">?</div>
         <div class="animate-quiz-bg absolute top-3/4 left-1/3 w-12 h-12 border-4 border-indigo-100 rounded-full" style="animation-delay: 4s;"></div>
-        <div class="animate-quiz-bg absolute top-1/2 right-1/4 w-8 h-8 border-4 border-teal-100 rotate-45" style="animation-delay: 1.5s;"></div>
     </div>
-    <div id="app" class="relative z-10 w-full max-w-md">
-        <div class="bg-white/90 backdrop-blur-sm p-8 rounded-2xl shadow-2xl w-full border border-white">
+    <div id="app" class="relative z-10 w-full max-w-[400px] px-4">
+        <div class="bg-white/90 backdrop-blur-sm p-6 rounded-2xl shadow-xl w-full border border-white/50 ring-1 ring-slate-900/5">
             <div class="text-center mb-6">
-                <div class="inline-block bg-indigo-600 text-white p-3 rounded-xl mb-4 shadow-lg shadow-indigo-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <div class="inline-flex items-center justify-center bg-indigo-600 text-white w-12 h-12 rounded-xl mb-3 shadow-lg shadow-indigo-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                     </svg>
                 </div>
-                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Lumenify</h1>
-                <p class="text-slate-500 mt-1">Create your account to get started.</p>
+                <h1 class="text-2xl font-bold text-slate-800 tracking-tight">Join Lumenify</h1>
             </div>
-            <div class="space-y-4">
+            <div class="space-y-3">
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                    <input type="text" v-model="username" placeholder="Choose a username" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Username</label>
+                    <input type="text" v-model="username" :disabled="codeSent" placeholder="Choose a username" 
+                        class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-slate-50 focus:bg-white">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                    <input type="email" v-model="email" placeholder="name@example.com" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Email</label>
+                    <input type="email" v-model="email" :disabled="codeSent" placeholder="name@example.com" 
+                        class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-slate-50 focus:bg-white">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                    <input type="password" v-model="password" placeholder="Min. 6 characters" class="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-all bg-white/50">
+                    <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Password</label>
+                    <input type="password" v-model="password" :disabled="codeSent" placeholder="••••••••" 
+                        class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-slate-50 focus:bg-white">
                 </div>
-                <div class="flex items-start mt-2">
-                    <div class="flex items-center h-5">
-                        <input id="terms" type="checkbox" v-model="agreedToTerms" class="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                <transition name="slide-up">
+                    <div v-if="codeSent" class="bg-indigo-50 p-3 rounded-lg border border-indigo-100 mt-2">
+                        <label class="block text-xs font-bold text-indigo-900 mb-1 text-center uppercase">Enter Code</label>
+                        <input type="text" v-model="verificationCode" placeholder="000000" maxlength="6"
+                            class="w-full px-2 py-2 border border-indigo-300 bg-white rounded-md focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-center tracking-[0.5em] font-bold text-lg text-indigo-700">
+                        <p class="text-[10px] text-indigo-500 mt-1 text-center">Sent to {{ email }}</p>
                     </div>
-                    <div class="ml-3 text-sm">
-                        <label for="terms" class="font-medium text-slate-600 select-none">
-                            I agree to the 
-                            <span @click.prevent="showTerms = true" class="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer font-bold">Terms and Conditions</span>
+                </transition>
+                <div class="flex items-start pt-1">
+                    <div class="flex items-center h-5">
+                        <input id="terms" type="checkbox" v-model="agreedToTerms" 
+                            class="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer">
+                    </div>
+                    <div class="ml-2 text-sm leading-4">
+                        <label for="terms" class="text-slate-600 select-none text-xs">
+                            I agree to the <span @click.prevent="showTerms = true" class="text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer font-bold">Terms & Conditions</span>
                         </label>
                     </div>
                 </div>
-                <button @click="handleRegister" 
-                        :class="agreedToTerms ? 'bg-indigo-600 hover:bg-indigo-700 active:scale-95 shadow-md' : 'bg-slate-300 cursor-not-allowed'"
-                        class="w-full text-white font-semibold py-3 rounded-lg transition-all mt-4">
-                    Register
+                <button v-if="!codeSent" @click="handleSendCode" :disabled="loading" 
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg shadow-md transition-all active:transform active:scale-95 mt-2 flex justify-center items-center gap-2 text-sm">
+                    <span v-if="loading" class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                    <span>Register</span>
                 </button>
-                <div class="h-6 text-center">
-                    <p v-if="message" class="text-sm text-red-500 font-medium animate-pulse">{{message}}</p>
+                <button v-else @click="handleRegister" :disabled="loading" 
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 rounded-lg shadow-md transition-all active:transform active:scale-95 mt-2 flex justify-center items-center gap-2 text-sm">
+                    <span v-if="loading" class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                    <span>Verify & Register</span>
+                </button>
+                <div class="h-5 text-center">
+                    <p v-if="message" class="text-xs font-bold" :class="isError ? 'text-red-500' : 'text-green-600'">{{message}}</p>
                 </div>
             </div>
-            <hr class="my-6 border-slate-100">
-            <div class="text-center text-sm text-slate-600">
-                Already have an account? 
-                <a href="./login.html" class="text-indigo-600 font-semibold hover:underline">Login here</a>
+            <hr class="my-4 border-slate-100">
+            <div class="text-center">
+                <span class="text-slate-500 uppercase text-xs font-bold mb-4">Already have an account? </span>
+                <a href="login.html" class="text-indigo-600 font-bold text-xs hover:underline">
+                    Sign In
+                </a>
             </div>
         </div>
         <transition name="fade">
-            <div v-if="showTerms" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden border border-slate-100">
-                    <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <h3 class="text-xl font-bold text-slate-800">Terms & Conditions</h3>
-                        <button @click="showTerms = false" class="text-slate-400 hover:text-slate-600 transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
+            <div v-if="showTerms" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" @click="showTerms = false"></div>
+                <div class="relative bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+                    <h3 class="text-lg font-bold text-slate-800 mb-4">Terms of Service</h3>
+                    <div class="h-48 overflow-y-auto mb-4 text-xs text-slate-600 bg-slate-50 p-3 rounded border border-slate-100 leading-relaxed">
+                        <p class="mb-2"><strong>1. Acceptance:</strong> By creating an account, you agree to these terms.</p>
+                        <p class="mb-2"><strong>2. Privacy:</strong> We use your data only for the quiz functionality.</p>
+                        <p class="mb-2"><strong>3. Conduct:</strong> Do not misuse the platform.</p>
+                        <p><strong>4. Rights:</strong> Lumenify owns all quiz content.</p>
                     </div>
-                    <div class="p-6 overflow-y-auto text-slate-600 text-sm space-y-4 leading-relaxed">
-                        <p class="font-bold text-slate-800">1. Acceptance of Terms</p>
-                        <p>By creating an account on Lumenify, you agree to comply with and be bound by these terms.</p>
-                        <p class="font-bold text-slate-800">2. User Account</p>
-                        <p>You are responsible for maintaining the confidentiality of your account credentials.</p>
-                        <p class="font-bold text-slate-800">3. Quiz Integrity</p>
-                        <p>Users agree not to cheat, manipulate scores, or attempt to hack the quiz system.</p>
-                        <p class="font-bold text-slate-800">4. Privacy Policy</p>
-                        <p>We respect your privacy. Your personal data is used solely for functionality.</p>
-                    </div>
-                    <div class="p-6 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                        <button @click="showTerms = false" class="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors font-medium">Close</button>
-                        <button @click="acceptTerms" class="px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg transition-colors font-semibold shadow-md">I Agree</button>
-                    </div>
+                    <button @click="acceptTerms" class="w-full py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium text-sm">
+                        I Agree
+                    </button>
                 </div>
             </div>
         </transition>
     </div>
-    <script>
-        Vue.createApp({
-            data() {
-                return {
-                    username: '',
-                    email: '',
-                    password: '',
-                    message: '',
-                    agreedToTerms: false,
-                    showTerms: false
+<script>
+    Vue.createApp({
+        data() {
+            return {
+                username: '',
+                email: '',
+                password: '',
+                verificationCode: '',
+                message: '',
+                isError: false,
+                loading: false,
+                codeSent: false,
+                agreedToTerms: false,
+                showTerms: false
+            }
+        },
+        methods: {
+            acceptTerms() {
+                this.agreedToTerms = true;
+                this.showTerms = false;
+            },
+            async handleSendCode() {
+                this.message = '';
+                this.isError = false;
+                if (!this.username || !this.password || !this.email) {
+                    this.message = "Please fill in all fields first.";
+                    this.isError = true;
+                    return;
+                }
+                if (!this.agreedToTerms) {
+                    this.message = "You must agree to the Terms.";
+                    this.isError = true;
+                    return;
+                }
+                this.loading = true;
+                try {
+                    const response = await fetch('../../api/user/send_code.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: this.username, email: this.email })
+                    });
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        this.codeSent = true;
+                        this.message = "Code sent! Check your email.";
+                        this.isError = false;
+                    } else {
+                        this.message = result.message;
+                        this.isError = true;
+                    }
+                } catch (error) {
+                    this.message = "Connection error.";
+                    this.isError = true;
+                } finally {
+                    this.loading = false;
                 }
             },
-            methods: {
-                acceptTerms() {
-                    this.agreedToTerms = true;
-                    this.showTerms = false;
-                },
-                async handleRegister() {
-                    this.message = '';
-                    if (!this.username || !this.password || !this.email) {
-                        this.message = "All fields are required.";
-                        return;
-                    }
-                    if (this.password.length < 6) {
-                        this.message = "Password must be at least 6 characters.";
-                        return;
-                    }
-                    if (!this.agreedToTerms) {
-                        this.message = "You must agree to the Terms & Conditions.";
-                        return;
-                    }
-                    try {
-                        const response = await fetch('../../api/user/register.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                username: this.username,
-                                email: this.email,
-                                password: this.password
-                            })
+            async handleRegister() {
+                this.message = '';
+                this.isError = false;
+                if (!this.verificationCode) {
+                    this.message = "Please enter the code sent to your email.";
+                    this.isError = true;
+                    return;
+                }
+                this.loading = true;
+                try {
+                    const response = await fetch('../../api/user/register.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            username: this.username,
+                            email: this.email,
+                            password: this.password,
+                            code: this.verificationCode
+                        })
+                    });
+                    const result = await response.json();
+                    if (result.status === 'success') {
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Success!',
+                            text: 'Account created successfully.',
+                            timer: 1500,
+                            showConfirmButton: false
+                        }).then(() => {
+                            window.location.href = './login.html';
                         });
-                        const result = await response.json();
-                        if (response.ok) {
-                            Swal.fire({
-                                icon: 'success',
-                                title: 'Account Created!',
-                                text: 'Redirecting to login...',
-                                timer: 1500,
-                                showConfirmButton: false,
-                                background: '#ffffff',
-                                color: '#1e293b',
-                                iconColor: '#4f46e5',
-                                customClass: {
-                                    popup: 'rounded-2xl font-sans border border-slate-100 shadow-xl'
-                                }
-                            }).then(() => {
-                                window.location.href = './login.html';
-                            });
-                        } else {
-                            this.message = result.message;
-                        }
-                    } catch (error) {
-                        this.message = "Could not connect to the server.";
+                    } else {
+                        this.message = result.message;
+                        this.isError = true;
                     }
+                } catch (error) {
+                    this.message = "Registration failed.";
+                    this.isError = true;
+                } finally {
+                    this.loading = false;
                 }
             }
-        }).mount('#app');
-    </script>
+        }
+    }).mount('#app');
+</script>
 </body>
 </html>
