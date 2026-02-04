@@ -1,3 +1,16 @@
+# Security: Ignore database and API configuration files
+/config/api.php
+/config/dbconfig.php
 /lumenify/config/api.php
-/node_modules/
+/lumenify/config/dbconfig.php
+
+# Environment variables
 .env
+
+# Logs and system files
+*.log
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
