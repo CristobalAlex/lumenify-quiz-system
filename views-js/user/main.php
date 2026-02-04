@@ -312,6 +312,7 @@ if (!isset($_SESSION['username'])) {
                 fileName: '',
                 extractedText: '',
                 loading: false,
+                isSaving: false,
                 loadingText: 'Loading...',
                 questionCount: 5,
                 quizType: 'multiple_choice', 
@@ -345,9 +346,6 @@ if (!isset($_SESSION['username'])) {
                         this.file = null;
                         this.fileName = '';
                     }
-                    if(this.extractedText.length < 50) {
-                        SwalTheme.fire({ icon: 'warning', title: 'Low Content', text: 'We could not extract enough text from this file. It might be an image-only PDF.' });
-                    }
                 } catch (error) {
                     console.error(error);
                     SwalTheme.fire({ icon: 'error', title: 'Read Error', text: 'Could not parse this file.' });
@@ -356,11 +354,54 @@ if (!isset($_SESSION['username'])) {
                     this.loadingText = originalText;
                 }
             },
+            async handleCsvUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        const rows = text.split("\n").filter(row => row.trim() !== "");
+                        
+                        const importedQuestions = rows.slice(1).map(row => {
+                            const parts = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+                            if (!parts || parts.length < 7) return null;
+
+                            const clean = (str) => str.replace(/^"|"$/g, '').replace(/""/g, '"').trim();
+
+                            return {
+                                text: clean(parts[0]),
+                                type: clean(parts[1]).toUpperCase() === 'MCQ' ? 'MCQ' : 'IDENT',
+                                options: {
+                                    A: clean(parts[2]),
+                                    B: clean(parts[3]),
+                                    C: clean(parts[4]),
+                                    D: clean(parts[5])
+                                },
+                                correct: clean(parts[6])
+                            };
+                        }).filter(q => q !== null);
+
+                        if (importedQuestions.length > 0) {
+                            this.manualQuestions = importedQuestions;
+                            this.activeTab = 'manual';
+                            this.isAiGenerated = true; 
+                            SwalTheme.fire({ icon: 'success', title: 'CSV Imported', text: `Loaded ${importedQuestions.length} questions.` });
+                        } else {
+                            throw new Error("No valid rows found.");
+                        }
+                    } catch (err) {
+                        SwalTheme.fire({ icon: 'error', title: 'Import Failed', text: 'Please check your CSV format.' });
+                    }
+                    event.target.value = ''; 
+                };
+                reader.readAsText(file);
+            },
             async extractPdfText(file) {
                 const arrayBuffer = await file.arrayBuffer();
                 const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
                 let fullText = "";
-
                 for (let i = 1; i <= pdf.numPages; i++) {
                     const page = await pdf.getPage(i);
                     const textContent = await page.getTextContent();
@@ -392,56 +433,54 @@ if (!isset($_SESSION['username'])) {
             },
             async generateFromAI() {
                 if (!this.extractedText) {
-                    SwalTheme.fire({ icon: 'warning', title: 'No Content', text: 'Please upload a valid file first.' });
+                    SwalTheme.fire({ icon: 'warning', title: 'No Content', text: 'Please upload a file first.' });
                     return;
                 }
 
-                this.loading = true;
-                this.loadingText = 'AI is generating your quiz...';
+                let totalRequested = parseInt(this.questionCount);
+                if (totalRequested > 100) totalRequested = 100;
+
+                const batchSize = 20; 
+                const totalBatches = Math.ceil(totalRequested / batchSize);
                 
-                let formData = new FormData();
-                formData.append('extractedText', this.extractedText); 
-                formData.append('questionCount', this.questionCount); 
-                formData.append('quizType', this.quizType);
+                this.loading = true;
+                this.manualQuestions = []; 
 
                 try {
-                    const response = await fetch('../../api/quiz/generate_ai.php', { method: 'POST', body: formData });
-                    const result = await response.json();
-
-                    if (result.status === 'success') {
-                        this.manualQuestions = result.data.map(q => ({
-                            type: q.type || (q.options && q.options.A ? 'MCQ' : 'IDENT'),
-                            text: q.text, 
-                            options: q.options || { A:'', B:'', C:'', D:'' }, 
-                            correct: q.correct
-                        }));
-                        this.activeTab = 'manual';
-                        this.isAiGenerated = true; 
+                    for (let i = 0; i < totalBatches; i++) {
+                        const remaining = totalRequested - (i * batchSize);
+                        const currentBatchCount = Math.min(batchSize, remaining);
                         
-                        SwalTheme.fire({ 
-                            icon: 'success', 
-                            title: 'Generation Complete!', 
-                            text: 'Review your questions below.',
-                            timer: 2000, 
-                            showConfirmButton: false 
-                        });
-                    } else {
-                        SwalTheme.fire({ icon: 'error', title: 'AI Error', text: result.message });
+                        this.loadingText = `AI generating batch ${i + 1} of ${totalBatches}...`;
+
+                        let formData = new FormData();
+                        formData.append('extractedText', this.extractedText);
+                        formData.append('questionCount', currentBatchCount);
+                        formData.append('quizType', this.quizType);
+
+                        const response = await fetch('../../api/quiz/generate_ai.php', { method: 'POST', body: formData });
+                        const result = await response.json();
+
+                        if (result.status === 'success') {
+                            this.manualQuestions.push(...result.data);
+                        } else {
+                            throw new Error(result.message);
+                        }
                     }
+
+                    this.activeTab = 'manual';
+                    this.isAiGenerated = true;
+                    SwalTheme.fire({ icon: 'success', title: 'Success!', text: `Generated ${this.manualQuestions.length} questions.` });
+
                 } catch (error) {
-                    SwalTheme.fire({ icon: 'error', title: 'Connection Error', text: 'Failed to connect to AI service.' });
+                    SwalTheme.fire({ icon: 'error', title: 'AI Error', text: error.message });
                 } finally {
                     this.loading = false;
                     this.loadingText = 'Loading...';
                 }
             },
             addQuestion() {
-                this.manualQuestions.push({
-                    type: 'MCQ',
-                    text: '',
-                    options: { A: '', B: '', C: '', D: '' },
-                    correct: 'A'
-                });
+                this.manualQuestions.push({ type: 'MCQ', text: '', options: { A: '', B: '', C: '', D: '' }, correct: 'A' });
             },
             removeQuestion(index) {
                 if (this.manualQuestions.length > 1) {
@@ -463,12 +502,7 @@ if (!isset($_SESSION['username'])) {
                     SwalTheme.fire({ icon: 'warning', title: 'Missing Title', text: 'Please enter a quiz title.' }); 
                     return; 
                 }
-                if (this.activeTab === 'upload' && !this.isAiGenerated) {
-                    SwalTheme.fire({ icon: 'warning', title: 'Generate First', text: 'Please generate questions with AI before saving.' });
-                    return;
-                }
-                this.loading = true;
-                this.loadingText = 'Saving Quiz...';
+                this.isSaving = true;
                 let formData = new FormData();
                 formData.append('title', this.title);
                 formData.append('description', this.description);
@@ -477,15 +511,8 @@ if (!isset($_SESSION['username'])) {
                 try {
                     const response = await fetch('../../api/quiz/create.php', { method: 'POST', body: formData });
                     const result = await response.json();
-                    
                     if (result.status === 'success') {
-                        await SwalTheme.fire({
-                            icon: 'success',
-                            title: 'Quiz Saved!',
-                            text: 'Redirecting to dashboard...',
-                            timer: 1500,
-                            showConfirmButton: false
-                        });
+                        await SwalTheme.fire({ icon: 'success', title: 'Quiz Saved!', text: 'Redirecting...', timer: 1500, showConfirmButton: false });
                         this.$router.push('/');
                     } else {
                         SwalTheme.fire({ icon: 'error', title: 'Error', text: result.message });
@@ -493,7 +520,7 @@ if (!isset($_SESSION['username'])) {
                 } catch (error) {
                     SwalTheme.fire({ icon: 'error', title: 'System Error', text: 'An error occurred while saving.' });
                 } finally {
-                    this.loading = false;
+                this.isSaving = false;
                 }
             }
         },
@@ -511,13 +538,25 @@ if (!isset($_SESSION['username'])) {
                     </div>
                 </div>
                 <div class="flex flex-col md:flex-row gap-2 md:gap-4 mb-6">
-                    <button @click="activeTab = 'upload'" :class="activeTab === 'upload' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'" class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border border-transparent flex justify-center items-center gap-2">
+                    <button @click="activeTab = 'upload'" 
+                        :class="activeTab === 'upload' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'" 
+                        class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border flex justify-center items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                        AI Generator (Fast)
+                        AI Generator
                     </button>
-                    <button @click="activeTab = 'manual'" :class="activeTab === 'manual' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'" class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border border-transparent flex justify-center items-center gap-2">
+                    <label 
+                        :class="activeTab === 'csv' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'"
+                        class="flex-1 py-3 px-4 rounded-xl font-bold cursor-pointer transition-all shadow-sm border flex justify-center items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                        Import CSV
+                        <input type="file" class="hidden" accept=".csv" @change="handleCsvUpload" @click="activeTab = 'csv'" />
+                    </label>
+
+                    <button @click="activeTab = 'manual'" 
+                        :class="activeTab === 'manual' ? 'bg-indigo-600 text-white ring-2 ring-indigo-200 dark:ring-indigo-900' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700'" 
+                        class="flex-1 py-3 px-4 rounded-xl font-bold transition-all shadow-sm border flex justify-center items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                        Manual Creation
+                        Manual
                     </button>
                 </div>
                 <div v-if="activeTab === 'upload'" class="bg-white dark:bg-slate-800 p-4 md:p-8 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
@@ -526,37 +565,29 @@ if (!isset($_SESSION['username'])) {
                         <div class="flex flex-col items-center justify-center pt-5 pb-6 z-10">
                             <svg class="w-10 h-10 mb-3 text-slate-400 group-hover:text-indigo-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                             <p v-if="!fileName" class="mb-2 text-sm text-slate-500 dark:text-slate-400"><span class="font-semibold">Click to upload</span></p>
-                            <p v-if="!fileName" class="text-xs text-slate-500 dark:text-slate-400">PDF/PPTX (Processed Locally)</p>
-                            <p v-if="fileName" class="mt-2 text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 text-sm flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                {{ fileName }}
-                            </p>
-                            <p v-if="fileName && extractedText" class="text-xs text-emerald-500 mt-1 font-semibold">Extracted Successfully!</p>
+                            <p v-if="fileName" class="mt-2 text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-lg border border-indigo-100 dark:border-indigo-800 text-sm flex items-center gap-2">{{ fileName }}</p>
                         </div>
                         <input type="file" class="hidden" accept=".pdf,.pptx" @change="handleFileUpload" />
                     </label>
-
-                    <div v-if="fileName" class="mt-6 border-t border-slate-100 dark:border-slate-700 pt-6 animate-fade-in-up">
+                    <div v-if="fileName" class="mt-6 border-t border-slate-100 dark:border-slate-700 pt-6">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div>
                                 <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Number of Questions</label>
-                                <input type="number" v-model="questionCount" min="1" max="20" class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none font-bold text-indigo-900 dark:text-indigo-300">
+                                <input type="number" v-model="questionCount" min="1" max="100" class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none">
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Quiz Type</label>
-                                <select v-model="quizType" class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none font-bold text-indigo-900 dark:text-indigo-300">
+                                <select v-model="quizType" class="w-full px-4 py-3 rounded-xl bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none">
                                     <option value="multiple_choice">Multiple Choice</option>
                                     <option value="identification">Identification</option>
-                                    <option value="mixed">Mixed (MC + Ident)</option>
+                                    <option value="mixed">Mixed</option>
                                 </select>
                             </div>
                         </div>
-                        <button @click="generateFromAI" :disabled="loading" class="w-full relative py-3 px-6 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold shadow-lg shadow-purple-200 dark:shadow-none transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-[50px]">
-                            <svg v-if="!loading" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                            <svg v-else class="animate-spin w-5 h-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <button @click="generateFromAI" :disabled="loading" class="w-full py-3 px-6 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-[50px]">
+                            <svg v-if="loading" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span>{{ loading ? loadingText : 'Generate Quiz with AI' }}</span>
                         </button>
-                        <p class="text-xs text-slate-400 mt-3 text-center">Fast Generation via Client-Side Extraction</p>
                     </div>
                 </div>
                 <div v-if="activeTab === 'manual'" class="space-y-6">
@@ -565,47 +596,41 @@ if (!isset($_SESSION['username'])) {
                             <div class="flex items-center gap-2">
                                 <h3 class="font-bold text-slate-800 dark:text-white">Question {{ index + 1 }}</h3>
                                 <span class="text-xs font-bold px-2 py-1 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300 cursor-pointer hover:bg-indigo-100 dark:hover:bg-indigo-900 transition-colors" @click="toggleQuestionType(index)">
-                                    {{ question.type === 'MCQ' ? 'Multiple Choice' : 'Identification' }} (Swap)
+                                    {{ question.type === 'MCQ' ? 'MC' : 'Ident' }} (Swap)
                                 </span>
                             </div>
                             <button v-if="manualQuestions.length > 1" @click="removeQuestion(index)" class="text-slate-400 hover:text-red-500 text-sm font-medium transition-colors">Remove</button>
                         </div>
                         <input v-model="question.text" type="text" class="w-full mb-4 px-4 py-3 rounded-lg bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 focus:border-indigo-500 dark:text-white outline-none font-medium" placeholder="Enter your question here...">
-                        
                         <div v-if="question.type === 'MCQ'" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div v-for="opt in ['A', 'B', 'C', 'D']" :key="opt" class="flex items-center gap-2">
                                 <span class="font-bold text-slate-400 w-6 flex-shrink-0">{{ opt }}.</span>
-                                <input v-model="question.options[opt]" type="text" :class="question.correct === opt ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 dark:border-indigo-500' : 'border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700'" class="flex-1 px-3 py-2 rounded-lg border text-sm focus:border-indigo-500 dark:text-white outline-none transition-colors" :placeholder="'Option ' + opt">
+                                <input v-model="question.options[opt]" type="text" class="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-sm focus:border-indigo-500 dark:text-white outline-none transition-colors" :placeholder="'Option ' + opt">
                             </div>
                         </div>
                         <div v-else class="mb-4">
                             <label class="block text-xs font-bold text-slate-400 uppercase mb-1">Correct Answer</label>
-                            <input v-model="question.correct" type="text" class="w-full px-4 py-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-400 font-bold outline-none" placeholder="Type the exact answer here...">
+                            <input v-model="question.correct" type="text" class="w-full px-4 py-3 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-400 font-bold outline-none" placeholder="Type answer here...">
                         </div>
-
                         <div v-if="question.type === 'MCQ'" class="flex flex-wrap items-center gap-2 md:gap-4 text-sm bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-100 dark:border-slate-700">
-                            <span class="font-semibold text-slate-700 dark:text-slate-300 w-full md:w-auto">Correct Answer:</span>
+                            <span class="font-semibold text-slate-700 dark:text-slate-300">Correct Answer:</span>
                             <div class="flex gap-4">
-                                <label v-for="opt in ['A', 'B', 'C', 'D']" :key="opt" class="flex items-center gap-2 cursor-pointer hover:bg-white dark:hover:bg-slate-600 px-2 py-1 rounded transition-colors">
-                                    <input type="radio" :name="'correct-' + index" :value="opt" v-model="question.correct" class="text-indigo-600 focus:ring-indigo-500">
+                                <label v-for="opt in ['A', 'B', 'C', 'D']" :key="opt" class="flex items-center gap-2 cursor-pointer">
+                                    <input type="radio" :name="'correct-' + index" :value="opt" v-model="question.correct" class="text-indigo-600">
                                     <span class="text-slate-600 dark:text-slate-300 font-bold">{{ opt }}</span>
                                 </label>
                             </div>
                         </div>
                     </div>
-                    
-                    <button @click="addQuestion" type="button" class="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 hover:border-indigo-300 hover:text-indigo-500 transition-all flex justify-center items-center gap-2">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-                        Add Another Question
-                    </button>
+                    <button @click="addQuestion" type="button" class="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl text-slate-500 dark:text-slate-400 font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex justify-center items-center gap-2">Add Question</button>
                 </div>
-
                 <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
-                    <button @click="submitQuiz" 
-                        :disabled="loading || (activeTab === 'upload' && !isAiGenerated)" 
-                        :class="loading || (activeTab === 'upload' && !isAiGenerated) ? 'opacity-70 cursor-not-allowed' : 'hover:bg-indigo-700 transform active:scale-[0.99]'"
-                        class="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none transition-all flex justify-center items-center gap-2">
-                        <span>{{ loading ? loadingText : 'Save Quiz' }}</span>
+                    <button @click="submitQuiz" :disabled="loading || isSaving" class="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                    <svg v-if="isSaving" class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>{{ isSaving ? 'Saving Quiz to Database...' : 'Save Quiz' }}</span>
                     </button>
                 </div>
             </div>`
@@ -926,19 +951,40 @@ if (!isset($_SESSION['username'])) {
                         this.expandedQuizId = quizId;
                     }
                 } catch (e) {
-                    SwalTheme.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: 'Failed to load details'
-                    });
+                    SwalTheme.fire({ icon: 'error', title: 'Error', text: 'Failed to load details' });
                 } finally {
                     this.loading = false;
                 }
             },
+            downloadCSV(quiz) {
+                if (!this.expandedQuizData || !this.expandedQuizData.questions) return;
+                
+                let csvContent = "Question,Type,Option A,Option B,Option C,Option D,Correct Answer\n";
+                
+                this.expandedQuizData.questions.forEach(q => {
+                    const row = [
+                        `"${(q.question_text || '').replace(/"/g, '""')}"`,
+                        q.option_a ? "MCQ" : "IDENT",
+                        `"${(q.option_a || '').replace(/"/g, '""')}"`,
+                        `"${(q.option_b || '').replace(/"/g, '""')}"`,
+                        `"${(q.option_c || '').replace(/"/g, '""')}"`,
+                        `"${(q.option_d || '').replace(/"/g, '""')}"`,
+                        `"${(q.correct_option || '').replace(/"/g, '""')}"`
+                    ];
+                    csvContent += row.join(",") + "\n";
+                });
+
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", `${quiz.title.replace(/\s+/g, '_')}.csv`);
+                link.click();
+            },
             async deleteQuiz(quiz) {
                 const result = await SwalDanger.fire({
                     title: `Delete "${quiz.title}"?`,
-                    text: "This is permanent! All questions, files, and student scores for this quiz will be erased.",
+                    text: "All data for this quiz will be erased permanentely.",
                     icon: 'warning',
                     showCancelButton: true,
                     confirmButtonText: 'Yes, delete it!'
@@ -947,94 +993,60 @@ if (!isset($_SESSION['username'])) {
                 try {
                     const res = await fetch('../../api/quiz/delete.php', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            id: quiz.id
-                        })
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: quiz.id })
                     });
                     const json = await res.json();
                     if (json.status === 'success') {
-                        SwalTheme.fire({
-                            icon: 'success',
-                            title: 'Deleted!',
-                            text: 'Quiz deleted successfully.',
-                            timer: 1500,
-                            showConfirmButton: false
-                        });
+                        SwalTheme.fire({ icon: 'success', title: 'Deleted!', timer: 1500, showConfirmButton: false });
                         this.fetchQuizzes();
                         this.expandedQuizId = null;
-                    } else {
-                        SwalTheme.fire({
-                            icon: 'error',
-                            title: 'Error',
-                            text: json.message
-                        });
                     }
                 } catch (e) {
-                    SwalTheme.fire({
-                        icon: 'error',
-                        title: 'Network Error',
-                        text: 'Could not delete quiz.'
-                    });
+                    SwalTheme.fire({ icon: 'error', title: 'Error', text: 'Could not delete quiz.' });
                 }
             }
         },
         template: `
             <div class="max-w-5xl mx-auto">
                 <h1 class="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-white mb-8">Manage Quizzes</h1>
-                <div v-if="loading && quizzes.length === 0" class="text-center py-10 text-slate-500 dark:text-slate-400">Loading...</div>
-                <div v-if="!loading && quizzes.length === 0" class="text-center py-10 text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                    No quizzes created yet.
-                </div>
+                <div v-if="!loading && quizzes.length === 0" class="text-center py-10 text-slate-500">No quizzes created yet.</div>
                 <div class="space-y-6">
-                    <div v-for="quiz in quizzes" :key="quiz.id" class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden transition-all hover:shadow-md">
+                    <div v-for="quiz in quizzes" :key="quiz.id" class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden hover:shadow-md transition-all">
                         <div class="p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                             <div class="flex-1">
                                 <h3 class="text-xl font-bold text-slate-800 dark:text-white">{{ quiz.title }}</h3>
                                 <p class="text-slate-500 dark:text-slate-400 text-sm">{{ quiz.description || 'No description provided.' }}</p>
                             </div>
                             <div class="flex items-center gap-3 w-full md:w-auto">
-                                <button @click="toggleDetails(quiz.id)" class="flex-1 md:flex-none px-4 py-2 rounded-lg border font-bold text-sm transition-colors flex items-center justify-center gap-2" :class="expandedQuizId === quiz.id ? 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-600' : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-slate-600 hover:bg-indigo-50 dark:hover:bg-slate-700'">
-                                    {{ expandedQuizId === quiz.id ? 'Hide Content' : 'View Content' }}
-                                    <svg class="w-4 h-4 transition-transform" :class="expandedQuizId === quiz.id ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                <button @click="toggleDetails(quiz.id)" class="px-4 py-2 rounded-lg border font-bold text-sm bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-slate-600">
+                                    {{ expandedQuizId === quiz.id ? 'Hide' : 'View Content' }}
                                 </button>
-                                <button @click="deleteQuiz(quiz)" class="flex-1 md:flex-none px-4 py-2 rounded-lg bg-white dark:bg-slate-800 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 font-bold text-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center justify-center gap-2">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    Delete
-                                </button>
+                                <button @click="deleteQuiz(quiz)" class="px-4 py-2 rounded-lg border border-red-200 text-red-600 font-bold text-sm">Delete</button>
                             </div>
                         </div>
-                        <div v-if="expandedQuizId === quiz.id && expandedQuizData" class="border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-6 animate-fade-in-down">
-                            <div v-if="quiz.file_type !== 'manual'" class="text-center py-4">
-                                <p class="text-slate-500 dark:text-slate-400 italic mb-3">This is a file-upload quiz. Content is stored inside the file.</p>
-                                <a :href="quiz.file_path.replace('./', '../../api/quiz/')" target="_blank" class="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold hover:underline">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-                                    Download / View File
-                                </a>
+                        <div v-if="expandedQuizId === quiz.id && expandedQuizData" class="border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <h4 class="font-bold text-slate-700 dark:text-slate-400 uppercase tracking-wider text-xs">Quiz Content</h4>
+                                <button v-if="quiz.file_type === 'manual'" @click="downloadCSV(quiz)" class="text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    Export to CSV
+                                </button>
                             </div>
-                            <div v-else>
-                                <h4 class="font-bold text-slate-700 dark:text-slate-400 mb-4 uppercase tracking-wider text-xs">Quiz Content & Answers</h4>
-                                <div class="grid gap-4">
-                                    <div v-for="(q, idx) in expandedQuizData.questions" :key="q.id" class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
-                                        <div class="flex gap-3 mb-3">
-                                            <span class="w-6 h-6 rounded-full bg-slate-800 dark:bg-slate-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">{{ idx + 1 }}</span>
-                                            <p class="font-bold text-slate-800 dark:text-white">{{ q.question_text }}</p>
-                                        </div>
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm ml-9">
-                                            <div v-for="opt in ['A','B','C','D']" :key="opt" 
-                                                class="px-3 py-2 rounded border flex items-center gap-2"
-                                                :class="q.correct_option === opt ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-800 text-green-800 dark:text-green-400 font-semibold' : 'bg-slate-50 dark:bg-slate-700 border-slate-100 dark:border-slate-600 text-slate-500 dark:text-slate-400'">
-                                                <span v-if="q.correct_option === opt">✅</span>
-                                                <span v-else class="w-5 text-center font-mono text-slate-400 dark:text-slate-500">{{ opt }}</span>
-                                                <span>{{ q['option_'+opt.toLowerCase()] }}</span>
-                                            </div>
+                            <div v-if="quiz.file_type !== 'manual'" class="text-center py-4">
+                                <a :href="quiz.file_path.replace('./', '../../api/quiz/')" target="_blank" class="text-blue-600 font-bold hover:underline">Download Original File</a>
+                            </div>
+                            <div v-else class="grid gap-4">
+                                <div v-for="(q, idx) in expandedQuizData.questions" :key="q.id" class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <p class="font-bold text-slate-800 dark:text-white mb-2">{{ idx + 1 }}. {{ q.question_text }}</p>
+                                    <div v-if="q.option_a" class="grid grid-cols-2 gap-2 text-sm ml-4">
+                                        <div v-for="opt in ['A','B','C','D']" :key="opt" :class="q.correct_option === opt ? 'text-emerald-600 font-bold' : 'text-slate-500'">
+                                            {{ opt }}: {{ q['option_'+opt.toLowerCase()] }} {{ q.correct_option === opt ? '✅' : '' }}
                                         </div>
                                     </div>
+                                    <div v-else class="ml-4 text-sm text-emerald-600 font-bold">Answer: {{ q.correct_option }}</div>
                                 </div>
                             </div>
-
                         </div>
                     </div>
                 </div>
